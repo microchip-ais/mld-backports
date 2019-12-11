@@ -1,0 +1,200 @@
+#!/bin/bash
+#
+# This script helps to work with the backport- and feature-patches
+# of the MOST Linux Driver.
+#
+# For usage:
+#   ./patchwork help
+#
+
+set -o nounset
+set -o errexit
+
+show_usage() {
+    cat <<EOF
+patchwork - Utility to work with MOST Linux Driver patches.
+
+Usage:
+  export KDIR=...
+  export CROSS_COMPILE=...
+  export ARCH=...
+  ./patchwork [patch|unpatch]
+
+Parameters
+  patch - patch all necessary kernel specific backport and recommended patches
+  unpatch - revert all applied patches ('cat .patched' shows all applied patches)
+  help - shows this help
+EOF
+}
+
+make_generator() {
+    echo "obj-m := t.o"
+    echo "CFLAGS_t.o := -Werror=implicit-int -Werror=implicit-function-declaration -Werror"
+}
+
+generate_test() {
+    echo "#include <linux/module.h>"
+    echo "#include <$1>"
+    echo "${@:2}"
+    echo 'MODULE_LICENSE("Dual BSD/GPL");'
+}
+
+generic_test_generator() {
+    generate_test "${@}"
+}
+
+fn_test_generator() {
+    generate_test "$1" "void test_fn(void) { $2; }"
+}
+
+show_patch() {
+    echo "$1__$2.patch"
+}
+
+zero_test() {
+    rm -rf _tmp
+    mkdir _tmp
+    make_generator > _tmp/Makefile
+    generate_test "linux/module.h" "
+        static int __init test_init(void) { return 0; }
+        static void __exit test_exit(void) {}
+        module_init(test_init);
+        module_exit(test_exit);" > _tmp/t.c
+    make -C ${KDIR:-/lib/modules/$(uname -r)/build} M=$(pwd)/_tmp modules >.make.log 2>&1 || {
+        >&2 cat .make.log
+        >&2 echo
+        >&2 echo "ERROR: zero test failed, check environment variables"
+        >&2 echo "KDIR=${KDIR:-/lib/modules/$(uname -r)/build}"
+        >&2 echo "CROSS_COMPILE=${CROSS_COMPILE:-<not set>}"
+        >&2 echo "ARCH=${ARCH:-<not set>}"
+        return 1;
+    }
+    return 0
+}
+
+check_patch() {
+    local TEST_GEN="$1_test_generator"
+    local PATCH="backport__$2.patch"
+    shift 2
+
+    >&2 echo "checking $PATCH ..."
+
+    rm -rf _tmp
+    mkdir _tmp
+    make_generator > _tmp/Makefile
+    $TEST_GEN "$@" > _tmp/t.c
+    echo "$PATCH" >>.make.log
+    make -C ${KDIR:-/lib/modules/$(uname -r)/build} M=$(pwd)/_tmp modules >>.make.log 2>&1 ||
+        echo "$PATCH"
+    echo >>.make.log
+}
+
+show_mandatory_patches() {
+    >.make.log
+
+    check_patch fn xx__ida_simple_get "linux/idr.h" "
+        ida_simple_get(0,0,0,0)"
+
+    check_patch fn dim2__devm_ioremap_resource "linux/device.h" "
+        devm_ioremap_resource(0,0)"
+
+    check_patch fn net__alloc_netdev "linux/netdevice.h" "
+        alloc_netdev(0,0,0,0)"
+
+    check_patch fn net__ether_addr_copy "linux/etherdevice.h" "
+        ether_addr_copy(0,0)"
+
+    check_patch fn net__ether_addr_equal "linux/etherdevice.h" "
+        ether_addr_equal(0,0)"
+
+    check_patch fn net__skb_put_data "linux/skbuff.h" "
+        skb_put_data(0,0,0)"
+
+    check_patch fn sound__snd_card_new "sound/core.h" "
+        snd_card_new(0,0,0,0,0,0)"
+
+    check_patch fn sound__snd_pcm_set_ops "sound/pcm.h" "
+        snd_pcm_set_ops(0,0,(const struct snd_pcm_ops *)0)"
+
+    check_patch fn usb__timer_setup "linux/timer.h" "
+        timer_setup((struct timer_list *)0,0,0)"
+
+    local p="$(
+        check_patch fn xx__strscpy "linux/string.h" "
+            (void)strscpy"
+    )"
+    [ -n "$p" ] && echo "$p" ||
+        check_patch fn xx__strscpy_warning "linux/string.h" "
+        strscpy(0,0,0)"
+
+    check_patch generic xx__poll_t "linux/types.h" "
+        __poll_t x;"
+
+    check_patch fn xx__EPOLLnn "linux/poll.h" "
+        (void)(EPOLLIN | EPOLLOUT | EPOLLRDNORM | EPOLLWRNORM)"
+
+    check_patch generic video__device_caps "media/v4l2-dev.h" "
+        struct video_device test_val = { .device_caps = 0 };"
+
+    check_patch generic configfs__const_qualifier_warning "linux/configfs.h" "
+        typedef const struct config_item_type *cptr_t_;
+        void test_fn(void) {
+            config_group_init_type_name(0, 0, (cptr_t_)0);
+            config_item_init_type_name(0, 0, (cptr_t_)0);
+        }"
+
+    check_patch generic xx__device_attr "linux/device.h" "
+        #define DEV_ATTR(_name)  (&dev_attr_##_name.attr)
+        static ssize_t test_show(struct device *d, struct device_attribute *a, char *n) {
+            (void)d; (void)a; (void)n; return 0;
+        }
+        static DEVICE_ATTR_RO(test);
+        struct attribute *test_attr = DEV_ATTR(test);"
+
+    check_patch generic dim2__module_platform_driver "linux/platform_device.h" "
+        static struct platform_driver test_val;
+        module_platform_driver(test_val);"
+
+    check_patch generic usb__module_usb_driver "linux/usb.h" "
+        static struct usb_driver test_val;
+        module_usb_driver(test_val);"
+
+    check_patch fn configfs__kstrtobool "linux/module.h" "
+        int x = kstrtobool(0,0); (void)x"
+}
+
+fail() { >&2 echo "$@"; exit 1; }
+
+patch() {
+    [ ! -e ./.cross-environment ] ||
+        source ./.cross-environment
+
+    zero_test || exit 1
+
+    [ ! -s .patched ] || return 0
+
+    {
+        show_mandatory_patches
+        # show_patch feature core_autoconf
+    } |tee .patched |while read x; do
+        echo "apply $x ..."
+        [ -e "patches/$x" ] || fail "ERROR: missing file patches/$x"
+        "$patch_tool" -p1 --force < patches/$x
+        echo
+    done
+}
+
+unpatch() {
+    [ -e .patched ] || return 0
+
+    cat .patched |tac |while read x; do
+        echo "unapply $x ..."
+        "$patch_tool" -p1 --force -R < patches/$x
+        echo
+    done && rm -f .patched
+}
+
+patch_tool="$(which patch)"
+[ -n "$patch_tool" ] || fail "missing patch tool"
+
+"${@:-show_usage}"
