@@ -1,0 +1,199 @@
+most: core: add autoconf ability
+
+This patch extends the driver with the possibility of automatic
+configuration.  This covers channel settings and connection establishing
+of a MOST device interface while it is registered with the core.
+
+Making use of auto configuration will significantly cut the start-up
+overhead and the duration until the driver is available in userspace.
+Since the configuration depends on the type of network interface
+controller, its setup and the peripheral interface, it can _not_ be part
+of the kernel and needs to be added once the system has been engineered.
+
+Signed-off-by: Andrey Shvetsov <andrey.shvetsov@k2l.de>
+Signed-off-by: Christian Gromm <christian.gromm@microchip.com>
+
+diff --git a/most/core.c b/most/core.c
+--- a/most/core.c
++++ b/most/core.c
+@@ -28,6 +28,8 @@
+ 
+ static struct ida mdev_id;
+ static int dummy_num_buffers;
++static struct list_head config_probes;
++struct mutex config_probes_mt; /* config_probes */
+ 
+ static struct mostcore {
+ 	struct device dev;
+@@ -1347,6 +1349,73 @@ int most_deregister_component(struct core_component *comp)
+ }
+ EXPORT_SYMBOL_GPL(most_deregister_component);
+ 
++void most_register_config_set(struct most_config_set *cfg_set)
++{
++	mutex_lock(&config_probes_mt);
++	list_add(&cfg_set->list, &config_probes);
++	mutex_unlock(&config_probes_mt);
++}
++EXPORT_SYMBOL(most_register_config_set);
++
++void most_deregister_config_set(struct most_config_set *cfg_set)
++{
++	mutex_lock(&config_probes_mt);
++	list_del(&cfg_set->list);
++	mutex_unlock(&config_probes_mt);
++}
++EXPORT_SYMBOL(most_deregister_config_set);
++
++static int probe_comp(struct most_c_obj *c,
++		     const char *comp_name, const char *comp_param)
++{
++	struct most_comp_obj *comp_obj;
++	char buf[STRING_SIZE];
++
++	list_for_each_entry(comp_obj, &comp_list, list) {
++		if (!strcmp(comp_obj->driver->name, comp_name)) {
++			strlcpy(buf, comp_param ? comp_param : "", sizeof(buf));
++			return link_channel_to_comp(c, comp_obj->driver, buf);
++		}
++	}
++	return 0;
++}
++
++static bool probe_config_set(struct most_c_obj *c,
++			     const char *dev_name, const char *ch_name,
++			     const struct most_config_probe *p)
++{
++	int err;
++
++	for (; p->ch_name; p++) {
++		if ((p->dev_name && strcmp(dev_name, p->dev_name)) ||
++		    strcmp(ch_name, p->ch_name))
++			continue;
++
++		c->cfg = p->cfg;
++		if (p->comp_name) {
++			err = probe_comp(c, p->comp_name, p->comp_param);
++			if (err)
++				pr_err("failed to autolink %s to %s: %d\n",
++				       ch_name, p->comp_name, err);
++		}
++		return true;
++	}
++	return false;
++}
++
++static void find_configuration(struct most_c_obj *c, const char *dev_name,
++			       const char *ch_name)
++{
++	struct most_config_set *plist;
++
++	mutex_lock(&config_probes_mt);
++	list_for_each_entry(plist, &config_probes, list) {
++		if (probe_config_set(c, dev_name, ch_name, plist->probes))
++			break;
++	}
++	mutex_unlock(&config_probes_mt);
++}
++
+ static void release_interface(struct device *dev)
+ {
+ 	pr_info("releasing interface dev %s...\n", dev_name(dev));
+@@ -1443,6 +1512,7 @@ int most_register_interface(struct most_interface *iface)
+ 			pr_err("registering c->dev failed\n");
+ 			goto err_free_most_channel;
+ 		}
++		find_configuration(c, iface->description, channel_name);
+ 	}
+ 	pr_info("registered new device mdev%d (%s)\n",
+ 		id, iface->description);
+@@ -1557,6 +1627,8 @@ static int __init most_init(void)
+ 
+ 	pr_info("MOST Linux Driver v5.3 4dba490412e7f6c9f17a0afcf7b08f110817b004\n");
+ 	INIT_LIST_HEAD(&mc.comp_list);
++	INIT_LIST_HEAD(&config_probes);
++	mutex_init(&config_probes_mt);
+ 	ida_init(&mdev_id);
+ 
+ 	mc.bus.name = "most",
+diff --git a/most/core.h b/most/core.h
+--- a/most/core.h
++++ b/most/core.h
+@@ -131,6 +131,39 @@ struct most_channel_config {
+ 	u16 dbr_size;
+ };
+ 
++/**
++ * struct most_config_probe - matching rule, channel configuration and
++ *     the optional AIM name used for the automatic configuration and linking
++ *     of the channel
++ * @dev_name: optional matching device id
++ *     ("usb_device 1-1:1.0," "dim2-12345678", etc.)
++ * @ch_name: matching channel name ("ep8f", "ca2", etc.)
++ * @cfg: configuration that will be applied for the found channel
++ * @aim_name: optional name of the AIM that will be linked to the channel
++ *     ("cdev", "networking", "v4l", "sound")
++ * @aim_param: AIM dependent parameter (it is the character device name
++ *     for the cdev AIM, PCM format for the audio AIM, etc.)
++ */
++struct most_config_probe {
++	const char *dev_name;
++	const char *ch_name;
++	struct most_channel_config cfg;
++	const char *aim_name;
++	const char *aim_param;
++};
++
++/**
++ * struct most_config_set - the configuration set containing
++ *     several automatic configurations for the different channels
++ * @probes: list of the matching rules and the configurations,
++ *     that must be ended with the empty structure
++ * @list: list head used by the MostCore
++ */
++struct most_config_set {
++	const struct most_config_probe *probes;
++	struct list_head list;
++};
++
+ /*
+  * struct mbo - MOST Buffer Object.
+  * @context: context for core completion handler
+@@ -275,6 +308,37 @@ struct core_component {
+ 	int (*cfg_complete)(void);
+ };
+ 
++/**
++ * most_register_config_set - registers the configuration set
++ *
++ * @cfg_set: configuration set to be registered for the future probes
++ *
++ * The function registers the given configuration set.
++ *
++ * It is possible to register or deregister several configuration sets
++ * independently.  Different configuration sets may contain the
++ * overlapped matching rules but later registered configuration set has
++ * the higher priority over the prior registered set.
++ *
++ * The only the first matched configuration is applied for each
++ * channel.
++ *
++ * The configuration for the channel is applied at the time of
++ * registration of the parent most_interface.
++ */
++void most_register_config_set(struct most_config_set *cfg_set);
++
++/**
++ * most_deregister_config_set - deregisters the prior registered
++ *     configuration set
++ *
++ * @cfg_set: configuration set to be deregistered
++ *
++ * The calling of this function does not change the current
++ * configuration of the channels.
++ */
++void most_deregister_config_set(struct most_config_set *cfg_set);
++
+ /**
+  * most_register_interface - Registers instance of the interface.
+  * @iface: Pointer to the interface instance description.

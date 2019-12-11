@@ -1,0 +1,30 @@
+backport: usb: module_usb_driver
+
+diff --git a/most/usb/usb.c b/most/usb/usb.c
+--- a/most/usb/usb.c
++++ b/most/usb/usb.c
+@@ -1222,7 +1222,23 @@ static struct usb_driver hdm_usb = {
+ 	.disconnect = hdm_disconnect,
+ };
+ 
+-module_usb_driver(hdm_usb);
++static int __init hdm_usb_init(void)
++{
++	if (usb_register(&hdm_usb)) {
++		pr_err("usb_register() failed\n");
++		return -EIO;
++	}
++
++	return 0;
++}
++
++static void __exit hdm_usb_exit(void)
++{
++	usb_deregister(&hdm_usb);
++}
++
++module_init(hdm_usb_init);
++module_exit(hdm_usb_exit);
+ MODULE_LICENSE("GPL");
+ MODULE_AUTHOR("Christian Gromm <christian.gromm@microchip.com>");
+ MODULE_DESCRIPTION("HDM_4_USB");

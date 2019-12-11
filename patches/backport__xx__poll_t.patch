@@ -1,0 +1,35 @@
+backport: __poll_t
+
+diff --git a/most/cdev/cdev.c b/most/cdev/cdev.c
+--- a/most/cdev/cdev.c
++++ b/most/cdev/cdev.c
+@@ -285,10 +285,10 @@ comp_read(struct file *filp, char __user *buf, size_t count, loff_t *offset)
+ 	return copied;
+ }
+ 
+-static __poll_t comp_poll(struct file *filp, poll_table *wait)
++static unsigned int comp_poll(struct file *filp, poll_table *wait)
+ {
+ 	struct comp_channel *c = filp->private_data;
+-	__poll_t mask = 0;
++	unsigned int mask = 0;
+ 
+ 	poll_wait(filp, &c->wq, wait);
+ 
+diff --git a/most/video/video.c b/most/video/video.c
+--- a/most/video/video.c
++++ b/most/video/video.c
+@@ -199,11 +199,11 @@ static ssize_t comp_vdev_read(struct file *filp, char __user *buf,
+ 	return ret;
+ }
+ 
+-static __poll_t comp_vdev_poll(struct file *filp, poll_table *wait)
++static unsigned int comp_vdev_poll(struct file *filp, poll_table *wait)
+ {
+ 	struct comp_fh *fh = filp->private_data;
+ 	struct most_video_dev *mdev = fh->mdev;
+-	__poll_t mask = 0;
++	unsigned int mask = 0;
+ 
+ 	/* only wait if no data is available */
+ 	if (!data_ready(mdev))

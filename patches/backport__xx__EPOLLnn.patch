@@ -1,0 +1,30 @@
+backport: EPOLLxx
+
+diff --git a/most/cdev/cdev.c b/most/cdev/cdev.c
+--- a/most/cdev/cdev.c
++++ b/most/cdev/cdev.c
+@@ -295,10 +295,10 @@ static __poll_t comp_poll(struct file *filp, poll_table *wait)
+ 	mutex_lock(&c->io_mutex);
+ 	if (c->cfg->direction == MOST_CH_RX) {
+ 		if (!c->dev || !kfifo_is_empty(&c->fifo))
+-			mask |= EPOLLIN | EPOLLRDNORM;
++			mask |= POLLIN | POLLRDNORM;
+ 	} else {
+ 		if (!c->dev || !kfifo_is_empty(&c->fifo) || ch_has_mbo(c))
+-			mask |= EPOLLOUT | EPOLLWRNORM;
++			mask |= POLLOUT | POLLWRNORM;
+ 	}
+ 	mutex_unlock(&c->io_mutex);
+ 	return mask;
+diff --git a/most/video/video.c b/most/video/video.c
+--- a/most/video/video.c
++++ b/most/video/video.c
+@@ -209,7 +209,7 @@ static __poll_t comp_vdev_poll(struct file *filp, poll_table *wait)
+ 	if (!data_ready(mdev))
+ 		poll_wait(filp, &mdev->wait_data, wait);
+ 	if (data_ready(mdev))
+-		mask |= EPOLLIN | EPOLLRDNORM;
++		mask |= POLLIN | POLLRDNORM;
+ 
+ 	return mask;
+ }

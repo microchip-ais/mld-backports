@@ -1,0 +1,76 @@
+backport: dim2: devm_ioremap_resource 
+
+diff --git a/most/dim2/dim2.c b/most/dim2/dim2.c
+--- a/most/dim2/dim2.c
++++ b/most/dim2/dim2.c
+@@ -733,6 +733,44 @@ static int get_dim2_clk_speed(const char *clock_speed, u8 *val)
+ 	return -EINVAL;
+ }
+ 
++static void __iomem *devmy_ioremap_resource(struct device *dev,
++					    struct resource *res)
++{
++	void __iomem *io_base;
++	struct platform_device *pdev =
++		container_of(dev, struct platform_device, dev);
++
++	if (!res) {
++		dev_err(dev, "no memory region defined\n");
++		return ERR_PTR(-ENOENT);
++	}
++
++	if (!request_mem_region(res->start, resource_size(res), pdev->name)) {
++		dev_err(dev, "failed to request mem region\n");
++		return ERR_PTR(-EBUSY);
++	}
++
++	io_base = ioremap(res->start, resource_size(res));
++	if (!io_base) {
++		dev_err(dev, "failed to ioremap\n");
++		release_mem_region(res->start, resource_size(res));
++		return ERR_PTR(-ENOMEM);
++	}
++
++	return io_base;
++}
++
++static void devmy_unmap_release(struct platform_device *pdev,
++				void __iomem *io_base)
++{
++	struct resource *res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
++
++	iounmap(io_base);
++	release_mem_region(res->start, resource_size(res));
++}
++
++#define devm_ioremap_resource devmy_ioremap_resource
++
+ /*
+  * dim2_probe - dim2 probe handler
+  * @pdev: platform device structure
+@@ -783,7 +821,7 @@ static int dim2_probe(struct platform_device *pdev)
+ 	pdata = of_id->data;
+ 	ret = pdata && pdata->enable ? pdata->enable(pdev) : 0;
+ 	if (ret)
+-		return ret;
++		goto err_unmap_release;
+ 
+ 	dev->disable_platform = pdata ? pdata->disable : NULL;
+ 
+@@ -901,6 +939,8 @@ err_shutdown_dim:
+ err_disable_platform:
+ 	if (dev->disable_platform)
+ 		dev->disable_platform(pdev);
++err_unmap_release:
++	devmy_unmap_release(pdev, dev->io_base);
+ 
+ 	return ret;
+ }
+@@ -926,6 +966,7 @@ static int dim2_remove(struct platform_device *pdev)
+ 
+ 	if (dev->disable_platform)
+ 		dev->disable_platform(pdev);
++	devmy_unmap_release(pdev, dev->io_base);
+ 
+ 	return 0;
+ }

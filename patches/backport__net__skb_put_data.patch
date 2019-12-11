@@ -1,0 +1,18 @@
+backport: networking: skb_put_data
+
+diff --git a/most/net/net.c b/most/net/net.c
+--- a/most/net/net.c
++++ b/most/net/net.c
+@@ -415,6 +415,12 @@ put_nd:
+ 	return 0;
+ }
+ 
++static inline void skb_put_data(struct sk_buff *skb, const void *data,
++				unsigned int len)
++{
++	memcpy(skb_put(skb, len), data, len);
++}
++
+ static int comp_rx_data(struct mbo *mbo)
+ {
+ 	const u32 zero = 0;

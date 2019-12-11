@@ -1,0 +1,26 @@
+backport: strscpy
+
+diff --git a/most/core.c b/most/core.c
+--- a/most/core.c
++++ b/most/core.c
+@@ -1390,7 +1390,7 @@ int most_register_interface(struct most_interface *iface)
+ 
+ 	INIT_LIST_HEAD(&iface->p->channel_list);
+ 	iface->p->dev_id = id;
+-	strscpy(iface->p->name, iface->description, sizeof(iface->p->name));
++	strcpy(iface->p->name, iface->description);
+ 	iface->dev.init_name = iface->p->name;
+ 	iface->dev.bus = &mc.bus;
+ 	iface->dev.parent = &mc.dev;
+diff --git a/most/sound/sound.c b/most/sound/sound.c
+--- a/most/sound/sound.c
++++ b/most/sound/sound.c
+@@ -661,7 +661,7 @@ skip_adpt_alloc:
+ 		goto err_free_adpt;
+ 
+ 	pcm->private_data = channel;
+-	strscpy(pcm->name, device_name, sizeof(pcm->name));
++	strcpy(pcm->name, device_name);
+ 	snd_pcm_set_ops(pcm, direction, &pcm_ops);
+ 
+ 	return 0;

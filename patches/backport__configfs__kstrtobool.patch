@@ -1,0 +1,58 @@
+backport: kstrtobool
+
+diff --git a/most/configfs.c b/most/configfs.c
+--- a/most/configfs.c
++++ b/most/configfs.c
+@@ -33,6 +33,52 @@ struct mdev_link {
+ 
+ static struct list_head mdev_link_list;
+ 
++/**
++ * kstrtobool - convert common user inputs into boolean values
++ * @s: input string
++ * @res: result
++ *
++ * This routine returns 0 iff the first character is one of 'Yy1Nn0', or
++ * [oO][NnFf] for "on" and "off". Otherwise it will return -EINVAL.  Value
++ * pointed to by res is updated upon finding a match.
++ */
++static int kstrtobool(const char *s, bool *res)
++{
++	if (!s)
++		return -EINVAL;
++
++	switch (s[0]) {
++	case 'y':
++	case 'Y':
++	case '1':
++		*res = true;
++		return 0;
++	case 'n':
++	case 'N':
++	case '0':
++		*res = false;
++		return 0;
++	case 'o':
++	case 'O':
++		switch (s[1]) {
++		case 'n':
++		case 'N':
++			*res = true;
++			return 0;
++		case 'f':
++		case 'F':
++			*res = false;
++			return 0;
++		default:
++			break;
++		}
++	default:
++		break;
++	}
++
++	return -EINVAL;
++}
++
+ static int set_cfg_buffer_size(struct mdev_link *link)
+ {
+ 	return most_set_cfg_buffer_size(link->device, link->channel,

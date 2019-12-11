@@ -1,0 +1,14 @@
+backport: sound: snd_card_new
+
+diff --git a/most/sound/sound.c b/most/sound/sound.c
+--- a/most/sound/sound.c
++++ b/most/sound/sound.c
+@@ -613,7 +613,7 @@ static int audio_probe_channel(struct most_interface *iface, int channel_id,
+ 	INIT_LIST_HEAD(&adpt->dev_list);
+ 	iface->priv = adpt;
+ 	list_add_tail(&adpt->list, &adpt_list);
+-	ret = snd_card_new(iface->driver_dev, -1, "INIC", THIS_MODULE,
++	ret = snd_card_create(-1, "INIC", THIS_MODULE,
+ 			   sizeof(*channel), &adpt->card);
+ 	if (ret < 0)
+ 		goto err_free_adpt;

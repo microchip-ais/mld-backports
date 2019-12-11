@@ -1,0 +1,23 @@
+backport: networking: ether_addr_copy
+
+diff --git a/most/net/net.c b/most/net/net.c
+--- a/most/net/net.c
++++ b/most/net/net.c
+@@ -463,7 +463,7 @@ static int comp_rx_data(struct mbo *mbo)
+ 
+ 	if (nd->is_mamac) {
+ 		/* dest */
+-		ether_addr_copy(skb_put(skb, ETH_ALEN), dev->dev_addr);
++		memcpy(skb_put(skb, ETH_ALEN), dev->dev_addr, ETH_ALEN);
+ 
+ 		/* src */
+ 		skb_put_data(skb, &zero, 4);
+@@ -556,7 +556,7 @@ static void on_netinfo(struct most_interface *iface,
+ 		if (!is_valid_ether_addr(dev->dev_addr)) {
+ 			netdev_info(dev, "set mac %02x-%02x-%02x-%02x-%02x-%02x\n",
+ 				    m[0], m[1], m[2], m[3], m[4], m[5]);
+-			ether_addr_copy(dev->dev_addr, m);
++			memcpy(dev->dev_addr, m, ETH_ALEN);
+ 			netif_dormant_off(dev);
+ 		} else if (!ether_addr_equal(dev->dev_addr, m)) {
+ 			netdev_warn(dev, "reject mac %02x-%02x-%02x-%02x-%02x-%02x\n",

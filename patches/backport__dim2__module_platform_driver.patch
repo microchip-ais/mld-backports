@@ -1,0 +1,33 @@
+backport: dim2: module_platform_driver 
+
+diff --git a/most/dim2/dim2.c b/most/dim2/dim2.c
+--- a/most/dim2/dim2.c
++++ b/most/dim2/dim2.c
+@@ -1103,7 +1103,26 @@ static struct platform_driver dim2_driver = {
+ 	},
+ };
+ 
+-module_platform_driver(dim2_driver);
++/**
++ * dim2_hdm_init - Driver Registration Routine
++ */
++static int __init dim2_hdm_init(void)
++{
++	pr_info("dim2_hdm_init()\n");
++	return platform_driver_register(&dim2_driver);
++}
++
++/**
++ * dim2_hdm_exit - Driver Cleanup Routine
++ **/
++static void __exit dim2_hdm_exit(void)
++{
++	pr_info("dim2_hdm_exit()\n");
++	platform_driver_unregister(&dim2_driver);
++}
++
++module_init(dim2_hdm_init);
++module_exit(dim2_hdm_exit);
+ 
+ MODULE_AUTHOR("Andrey Shvetsov <andrey.shvetsov@k2l.de>");
+ MODULE_DESCRIPTION("MediaLB DIM2 Hardware Dependent Module");
