@@ -29,12 +29,13 @@ inic_sound-y := most/sound/sound.o
 obj-m += inic_video.o
 inic_video-y := most/video/video.o
 
-## I2C interface
-## obj-m += inic_i2c.o inic_i2c_pd.o
-## inic_i2c-y := most/i2c/i2c.o
+# I2C interface
+obj-m += inic_i2c.o
+inic_i2c-y := most/i2c/i2c.o
+# obj-m += inic_i2c_pd.o
 ### only one in the [[
-## inic_i2c_pd-y := most/i2c/platform/plat_imx6q.o
-## inic_i2c_pd-y := most/i2c/platform/plat_zynq.o
+# inic_i2c_pd-y := most/i2c/platform/plat_imx6q.o
+# inic_i2c_pd-y := most/i2c/platform/plat_zynq.o
 ### ]]
 
 # DIM2 interface
